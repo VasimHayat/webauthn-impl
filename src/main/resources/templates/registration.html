@@ -45,6 +45,7 @@
 <script>
     async function startRegistration() {
         const username = document.getElementById('username').value;
+
         if (!username) {
             alert('Username is required');
             return;
@@ -52,7 +53,7 @@
 
         document.getElementById('status').innerText = '🕐 Starting registration...';
 
-        const res = await fetch('/webauthn/register/start', {
+        const res = await fetch('/v2/webauthn/register/start', {
             method: 'POST',
             headers: {'Content-Type': 'application/json'},
             body: JSON.stringify({username})
@@ -91,7 +92,7 @@
             clientExtensionResults: credential.getClientExtensionResults()
         };
 
-        const result = await fetch('/webauthn/register/finish', {
+        const result = await fetch('/v2/webauthn/register/finish', {
             method: 'POST',
             headers: {'Content-Type': 'application/json'},
             body: JSON.stringify({

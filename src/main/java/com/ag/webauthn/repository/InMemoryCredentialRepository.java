@@ -4,10 +4,7 @@ import com.yubico.webauthn.CredentialRepository;
 import com.yubico.webauthn.RegisteredCredential;
 import com.yubico.webauthn.data.*;
 
-
-
 import com.yubico.webauthn.data.ByteArray;
-import lombok.Data;
 import org.springframework.stereotype.Repository;
 
 import java.time.Instant;
@@ -15,18 +12,8 @@ import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.stream.Collectors;
 
-
-//import com.yubico.webauthn.CredentialRepository;
-//import com.yubico.webauthn.data.*;
-//import org.springframework.stereotype.Repository;
-//
-//import java.time.Instant;
-//import java.util.*;
-//import java.util.concurrent.ConcurrentHashMap;
-//import java.util.stream.Collectors;
-
 @Repository
-public class InMemoryCredentialRepository implements CredentialRepository {
+public class InMemoryCredentialRepository  {
 
     private static class StoredCredential {
         final String username;
@@ -79,7 +66,7 @@ public class InMemoryCredentialRepository implements CredentialRepository {
     }
 
 
-    @Override
+   // @Override
     public Set<PublicKeyCredentialDescriptor> getCredentialIdsForUsername(String username) {
         return credentialsByUsername.getOrDefault(username, Collections.emptyList())
                 .stream()
@@ -90,12 +77,12 @@ public class InMemoryCredentialRepository implements CredentialRepository {
                 .collect(Collectors.toSet());
     }
 
-    @Override
+   // @Override
     public Optional<ByteArray> getUserHandleForUsername(String username) {
         return Optional.ofNullable(users.get(username)).map(UserIdentity::getId);
     }
 
-    @Override
+  //  @Override
     public Optional<String> getUsernameForUserHandle(ByteArray userHandle) {
         return users.values().stream()
                 .filter(u -> u.getId().equals(userHandle))
@@ -104,24 +91,7 @@ public class InMemoryCredentialRepository implements CredentialRepository {
     }
 
 
-
-
-//    @Override
-//    public Optional<RegisteredCredential> lookup(ByteArray credentialId, ByteArray userHandle) {
-//        StoredCredential sc = credentials.get(credentialId);
-//        if (sc != null && sc.userIdentity.getId().equals(userHandle)) {
-//            RegisteredCredential rc = RegisteredCredential.builder()
-//                    .credentialId(sc.credentialId)
-//                    .userHandle(sc.userIdentity.getId())
-//                    .publicKeyCose(sc.publicKeyCose)
-//                    .signatureCount(sc.signatureCount)
-//                    .build();
-//            return Optional.of(rc);
-//        }
-//        return Optional.empty();
-//    }
-
-    @Override
+   // @Override
     public Optional<RegisteredCredential> lookup(ByteArray credentialId, ByteArray userHandle) {
         System.out.println("🔍 lookup() called:");
         System.out.println(" - credentialId: " + credentialId.getHex());
@@ -152,7 +122,7 @@ public class InMemoryCredentialRepository implements CredentialRepository {
     }
 
 
-    @Override
+    //@Override
     public Set<RegisteredCredential> lookupAll(ByteArray credentialId) {
 
         if (!credentials.containsKey(credentialId)) {

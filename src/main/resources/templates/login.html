@@ -46,7 +46,7 @@
     async function startLogin(usePasskey = false) {
         const username = usePasskey ? '' : document.getElementById('username').value;
 
-        const res = await fetch('/webauthn/login/start', {
+        const res = await fetch('/v2/webauthn/login/start', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: username ? JSON.stringify({ username }) : '{}'
@@ -83,7 +83,7 @@
                 clientExtensionResults: assertion.getClientExtensionResults(),
             };
 
-            const result = await fetch('/webauthn/login/finish', {
+            const result = await fetch('/v2/webauthn/login/finish', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
