@@ -3,22 +3,52 @@
 <head>
     <title>Register</title>
     <meta charset="UTF-8">
+
+    <!-- ✅ Bootstrap CSS CDN -->
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <style>
+        body {
+            background-color: #f8f9fa;
+        }
+        .register-container {
+            max-width: 400px;
+            margin: 80px auto;
+            padding: 30px;
+            background: #fff;
+            border-radius: 10px;
+            box-shadow: 0 0 10px rgba(0,0,0,0.1);
+        }
+    </style>
 </head>
 <body>
-<h2>Register with Passkey (WebAuthn)</h2>
 
-<label for="username">Username:</label>
-<input type="text" id="username" name="username" required>
-<br><br>
+<div class="container">
+    <div class="register-container">
+        <h3 class="text-center mb-4">Register with Passkey</h3>
 
-<button onclick="startRegistration()">Register</button>
+        <div class="mb-3">
+            <label for="username" class="form-label">Username</label>
+            <input type="text" id="username" name="username" class="form-control" required>
+        </div>
 
-<p id="status"></p>
+        <div class="d-grid mb-3">
+            <button class="btn btn-success" onclick="startRegistration()">Register</button>
+        </div>
+
+        <p id="status" class="text-center text-muted mt-3"></p>
+    </div>
+</div>
+
+<!-- ✅ Bootstrap JS Bundle -->
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
 
 <script>
     async function startRegistration() {
         const username = document.getElementById('username').value;
-        if (!username) return alert('Username is required');
+        if (!username) {
+            alert('Username is required');
+            return;
+        }
 
         document.getElementById('status').innerText = '🕐 Starting registration...';
 
@@ -31,7 +61,6 @@
         const respData = await res.json();
         const options = respData.publicKey;
 
-        // Decode base64url to ArrayBuffer
         options.challenge = base64urlToBuffer(options.challenge);
         options.user.id = base64urlToBuffer(options.user.id);
 
@@ -39,7 +68,6 @@
             options.excludeCredentials.forEach(c => c.id = base64urlToBuffer(c.id));
         }
 
-        // Optional: include extensions for passkey features
         options.extensions = {
             credProps: true
         };
@@ -88,5 +116,6 @@
         return Uint8Array.from([...raw].map(ch => ch.charCodeAt(0))).buffer;
     }
 </script>
+
 </body>
 </html>
