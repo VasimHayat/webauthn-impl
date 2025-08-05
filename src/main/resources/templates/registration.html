@@ -5,7 +5,7 @@
     <meta charset="UTF-8">
 </head>
 <body>
-<h2>Register with WebAuthn</h2>
+<h2>Register with Passkey (WebAuthn)</h2>
 
 <label for="username">Username:</label>
 <input type="text" id="username" name="username" required>
@@ -20,6 +20,8 @@
         const username = document.getElementById('username').value;
         if (!username) return alert('Username is required');
 
+        document.getElementById('status').innerText = '🕐 Starting registration...';
+
         const res = await fetch('/webauthn/register/start', {
             method: 'POST',
             headers: {'Content-Type': 'application/json'},
@@ -27,14 +29,28 @@
         });
 
         const respData = await res.json();
-        const options = respData.publicKey;  //await res.json();
-        options.user.id = base64urlToBuffer(options.user.id);
+        const options = respData.publicKey;
+
+        // Decode base64url to ArrayBuffer
         options.challenge = base64urlToBuffer(options.challenge);
+        options.user.id = base64urlToBuffer(options.user.id);
+
         if (options.excludeCredentials) {
             options.excludeCredentials.forEach(c => c.id = base64urlToBuffer(c.id));
         }
 
-        const credential = await navigator.credentials.create({ publicKey: options });
+        // Optional: include extensions for passkey features
+        options.extensions = {
+            credProps: true
+        };
+
+        let credential;
+        try {
+            credential = await navigator.credentials.create({ publicKey: options });
+        } catch (err) {
+            document.getElementById('status').innerText = `❌ Registration failed: ${err.message}`;
+            return;
+        }
 
         const credentialJson = {
             id: credential.id,
@@ -44,13 +60,8 @@
                 attestationObject: bufferToBase64url(credential.response.attestationObject),
                 clientDataJSON: bufferToBase64url(credential.response.clientDataJSON)
             },
-             type: credential.type,
-              clientExtensionResults: credential.getClientExtensionResults(), // ✅ important
+            clientExtensionResults: credential.getClientExtensionResults()
         };
-
-
-
-
 
         const result = await fetch('/webauthn/register/finish', {
             method: 'POST',
@@ -61,7 +72,8 @@
             })
         });
 
-        document.getElementById('status').innerText = await result.text();
+        const text = await result.text();
+        document.getElementById('status').innerText = result.ok ? `✅ Registered: ${text}` : `❌ ${text}`;
     }
 
     function bufferToBase64url(buffer) {

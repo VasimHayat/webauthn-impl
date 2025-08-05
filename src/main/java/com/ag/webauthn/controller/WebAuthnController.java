@@ -14,25 +14,13 @@ import org.springframework.web.bind.annotation.*;
 
 import java.io.IOException;
 import java.security.SecureRandom;
-import java.util.List;
-import java.util.Map;
-import java.util.Optional;
-import java.util.Set;
+import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 
 @RestController
 @RequestMapping("/webauthn")
 public class WebAuthnController {
 
-    @GetMapping("/register")
-    public String showRegistrationPage() {
-        return "registration";
-    }
-
-    @GetMapping("/login")
-    public String showLoginPage() {
-        return "login";
-    }
 
     private final RelyingParty relyingParty;
     private final InMemoryCredentialRepository credentialRepository;
@@ -63,18 +51,7 @@ public class WebAuthnController {
             return newUser;
         });
 
-//        UserIdentity user = existingUser.orElseGet(() -> {
-//            try {
-//                byte[] userIdBytes = new byte[32];
-//                return UserIdentity.builder()
-//                        .name(username)
-//                        .displayName(username)
-//                        .id(ByteArray.fromBase64Url(username.getBytes().toString()))
-//                        .build();
-//            } catch (Base64UrlException e) {
-//                throw new RuntimeException(e);
-//            }
-//        });
+
 
         PublicKeyCredentialCreationOptions request = relyingParty.startRegistration(
                 StartRegistrationOptions.builder()
@@ -82,6 +59,7 @@ public class WebAuthnController {
                         .authenticatorSelection(AuthenticatorSelectionCriteria.builder()
                                 .residentKey(ResidentKeyRequirement.PREFERRED)
                                 .userVerification(UserVerificationRequirement.PREFERRED)
+                                .authenticatorAttachment(AuthenticatorAttachment.PLATFORM) // Optional: enforce platform auth
                                 .build())
                         .build()
         );
@@ -122,55 +100,82 @@ public class WebAuthnController {
 
 
     @PostMapping("/login/start")
-    public String startLogin(@RequestBody Map<String, String> body) {
-        String username = body.get("username");
+    public Map<String, Object> startLogin(@RequestBody Map<String, String> body) {
+        Optional<String> maybeUsername = Optional.ofNullable(body.get("username"))
+                .filter(s -> !s.isEmpty());
 
-        AssertionRequest request = relyingParty.startAssertion(StartAssertionOptions.builder()
-                .username(username)
-                .userVerification(UserVerificationRequirement.PREFERRED)
-                .build());
+        StartAssertionOptions.StartAssertionOptionsBuilder optionsBuilder = StartAssertionOptions.builder()
+                .userVerification(UserVerificationRequirement.PREFERRED);
 
-        loginCache.put(username, request);
+        maybeUsername.ifPresent(optionsBuilder::username);
+
+        AssertionRequest request = relyingParty.startAssertion(optionsBuilder.build());
+
+        // Use username as cache key if provided; otherwise generate a temporary ID
+        String cacheKey = maybeUsername.orElse(UUID.randomUUID().toString());
+        loginCache.put(cacheKey, request);
+
+        System.out.println("cacheKey "+cacheKey);
+
+        Map<String, Object> response = new HashMap<>();
+        response.put("requestId", cacheKey); // Return the login cache key
+
+
         try {
-            return request.toCredentialsGetJson();
+            response.put("reqData", new ObjectMapper().readValue(request.toCredentialsGetJson(), Map.class));
+           // response.put("request", request.toCredentialsGetJson());
+            return response;
         } catch (JsonProcessingException e) {
-            throw new RuntimeException(e);
+            throw new RuntimeException("Failed to convert AssertionRequest to JSON", e);
         }
     }
 
     @PostMapping("/login/finish")
-    public String finishLogin(@RequestBody String publicKeyCredentialJson) throws IOException {
-
-
-        PublicKeyCredential<AuthenticatorAssertionResponse, ClientAssertionExtensionOutputs> pkc =
-                PublicKeyCredential.parseAssertionResponseJson(publicKeyCredentialJson);
-
-        String username = credentialRepository.getUsernameByCredentialId(pkc.getId());
-        AssertionRequest request = loginCache.get(username);
-
-
-        String credentialIdHex = pkc.getId().getHex();
-        System.out.println("🔍 Login attempt with credentialId (hex): " + credentialIdHex);
-
-
-        System.out.println(" - Resolved username: " + username);
-
-// Print all known credential IDs for the user
-        Set<PublicKeyCredentialDescriptor> userCredentials = credentialRepository.getCredentialIdsForUsername(username);
-        System.out.println(" - Known credentials for user:");
-        userCredentials.forEach(c -> System.out.println("   • " + c.getId().getHex()));
-
-
-        AssertionResult result = null;
-        try {
-            result = relyingParty.finishAssertion(FinishAssertionOptions.builder()
-                    .request(request)
-                    .response(pkc)
-                    .build());
-        } catch (AssertionFailedException e) {
-            throw new RuntimeException(e);
+    public String finishLogin(@RequestBody Map<String, Object> body) throws IOException {
+        // Extract requestId (used as the cache key for AssertionRequest)
+        String requestId = (String) body.get("requestId");
+        if (requestId == null || !loginCache.containsKey(requestId)) {
+            throw new IllegalArgumentException("Invalid or missing requestId");
         }
 
+        // Extract credential object sent from client
+        Map<String, Object> credentialMap = (Map<String, Object>) body.get("credential");
+
+        // Convert credential JSON to PublicKeyCredential object
+        ObjectMapper mapper = new ObjectMapper();
+        String credentialJson = mapper.writeValueAsString(credentialMap);
+
+        PublicKeyCredential<AuthenticatorAssertionResponse, ClientAssertionExtensionOutputs> pkc =
+                PublicKeyCredential.parseAssertionResponseJson(credentialJson);
+
+        // Retrieve the original AssertionRequest from cache
+        AssertionRequest request = loginCache.get(requestId);
+
+        // Get the username associated with the credentialId
+        String username = credentialRepository.getUsernameByCredentialId(pkc.getId());
+
+        System.out.println("🔍 Login attempt with credentialId (hex): " + pkc.getId().getHex());
+        System.out.println(" - Resolved username: " + username);
+
+        Set<PublicKeyCredentialDescriptor> knownCredentials = credentialRepository.getCredentialIdsForUsername(username);
+        System.out.println(" - Known credentials for user:");
+        knownCredentials.forEach(c -> System.out.println("   • " + c.getId().getHex()));
+
+        // Perform assertion verification
+        AssertionResult result;
+        try {
+            result = relyingParty.finishAssertion(
+                    FinishAssertionOptions.builder()
+                            .request(request)
+                            .response(pkc)
+                            .build()
+            );
+        } catch (AssertionFailedException e) {
+            e.printStackTrace();
+            throw new RuntimeException("Authentication failed: " + e.getMessage());
+        }
+
+        // Success: update counter and return username
         if (result.isSuccess()) {
             credentialRepository.updateSignatureCount(
                     username,
@@ -179,10 +184,70 @@ public class WebAuthnController {
                     Optional.of(result.isBackedUp())
             );
 
+            // Optionally: clean up cache
+            loginCache.remove(requestId);
 
-            return result.getUsername();
+            return "Login successful as " + result.getUsername();
         }
 
         throw new RuntimeException("Authentication failed");
     }
+
+
+//    @PostMapping("/login/finish")
+//    public String finishLogin(@RequestBody Map<String, Object> body) throws IOException {
+//
+//
+////        PublicKeyCredential<AuthenticatorAssertionResponse, ClientAssertionExtensionOutputs> pkc =
+////                PublicKeyCredential.parseAssertionResponseJson(publicKeyCredentialJson);
+//
+////        String username = credentialRepository.getUsernameByCredentialId(pkc.getId());
+////        AssertionRequest request = loginCache.get(username);
+//
+//        String requestId = (String) body.get("requestId");
+//        Map<String, Object> credentialMap = (Map<String, Object>) body.get("credential");
+//
+//        PublicKeyCredential<AuthenticatorAssertionResponse, ClientAssertionExtensionOutputs> pkc =
+//                PublicKeyCredential.parseAssertionResponseJson(new ObjectMapper().writeValueAsString(credentialMap));
+//
+//        AssertionRequest request = loginCache.get(requestId);
+//
+//
+//
+//        String credentialIdHex = pkc.getId().getHex();
+//        System.out.println("🔍 Login attempt with credentialId (hex): " + credentialIdHex);
+//
+//
+//        System.out.println(" - Resolved username: " + username);
+//
+//// Print all known credential IDs for the user
+//        Set<PublicKeyCredentialDescriptor> userCredentials = credentialRepository.getCredentialIdsForUsername(username);
+//        System.out.println(" - Known credentials for user:");
+//        userCredentials.forEach(c -> System.out.println("   • " + c.getId().getHex()));
+//
+//
+//        AssertionResult result = null;
+//        try {
+//            result = relyingParty.finishAssertion(FinishAssertionOptions.builder()
+//                    .request(request)
+//                    .response(pkc)
+//                    .build());
+//        } catch (AssertionFailedException e) {
+//            throw new RuntimeException(e);
+//        }
+//
+//        if (result.isSuccess()) {
+//            credentialRepository.updateSignatureCount(
+//                    username,
+//                    result.getCredentialId(),
+//                    result.getSignatureCount(),
+//                    Optional.of(result.isBackedUp())
+//            );
+//
+//
+//            return result.getUsername();
+//        }
+//
+//        throw new RuntimeException("Authentication failed");
+//    }
 }
